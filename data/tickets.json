@@ -1,0 +1,62 @@
+[
+  {
+    "id": "DATA-1001",
+    "title": "Pull EU order totals for a customer escalation",
+    "requester": "analyst_a",
+    "sql": "SELECT c.email, o.total FROM customers c JOIN orders o ON c.id = o.customer_id WHERE c.email = 'jane.doe@example.com' AND o.shipping_region = 'EU' -- check Jane's orders"
+  },
+  {
+    "id": "DATA-1002",
+    "title": "Daily order volume for dashboard",
+    "requester": "analyst_b",
+    "sql": "SELECT COUNT(*) AS order_count, currency FROM orders WHERE created_at >= '2026-10-01' GROUP BY currency"
+  },
+  {
+    "id": "DATA-1003",
+    "title": "Merchant tax verification for finance",
+    "requester": "finance_ops",
+    "sql": "SELECT m.legal_name, m.tax_id, m.country_code FROM merchants m WHERE m.merchant_id = 88213"
+  },
+  {
+    "id": "DATA-1004",
+    "title": "Export German and French customer records",
+    "requester": "marketing_ops",
+    "sql": "SELECT * FROM customers WHERE country_code IN ('DE', 'FR')"
+  },
+  {
+    "id": "DATA-1005",
+    "title": "Loyalty program outreach list",
+    "requester": "crm_team",
+    "sql": "SELECT lp.member_email, lp.points_balance FROM loyalty_profiles lp WHERE lp.tier = 'gold' AND lp.points_balance > 5000"
+  },
+  {
+    "id": "DATA-1006",
+    "title": "Support case backlog review",
+    "requester": "support_lead",
+    "sql": "SELECT cust_ref, case_notes FROM support_cases_v2 WHERE opened_by = 'agent_77'"
+  },
+  {
+    "id": "DATA-1007",
+    "title": "Chargeback investigation",
+    "requester": "risk_team",
+    "sql": "SELECT p.card_last4, p.card_brand, p.amount FROM payments p WHERE p.order_id = 'A-1001'"
+  },
+  {
+    "id": "DATA-1008",
+    "title": "Repeat buyers by region (subquery)",
+    "requester": "analyst_c",
+    "sql": "SELECT r.shipping_region, COUNT(*) FROM (SELECT o.customer_id, o.shipping_region FROM orders o WHERE o.total > 250) r GROUP BY r.shipping_region"
+  },
+  {
+    "id": "DATA-1009",
+    "title": "Broken query pasted from chat",
+    "requester": "analyst_d",
+    "sql": "SELEC email FRM customers WHERE"
+  },
+  {
+    "id": "DATA-1010",
+    "title": "Product catalog by category",
+    "requester": "merch_team",
+    "sql": "SELECT title, category, price FROM products WHERE price BETWEEN 10 AND 50 ORDER BY price DESC LIMIT 100"
+  }
+]

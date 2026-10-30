@@ -1,0 +1,82 @@
+name: GDPR query tagging
+
+on:
+  # Tag new tickets every weekday morning.
+  schedule:
+    - cron: "17 11 * * 1-5"
+  # Re-run when the pipeline, catalog, or tickets change. Workflow changes go
+  # through pull request review, which is itself a change-management control.
+  pull_request:
+    paths: ["gdpr_tagger/**", "config/**", "data/**", "tests/**"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      classifier:
+        description: "Classifier backend"
+        type: choice
+        options: [mock, anthropic, bedrock]
+        default: mock
+
+permissions:
+  contents: read
+  id-token: write # only needed for the Bedrock OIDC option below
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Unit tests (including the data-leak test)
+        run: pytest -q
+
+  tag:
+    needs: test # never tag tickets with code that failed its tests
+    runs-on: ubuntu-latest
+    env:
+      CLASSIFIER: ${{ inputs.classifier || 'mock' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # Bedrock option: short-lived AWS credentials through OIDC, no stored keys.
+      # Set the AWS_ROLE_ARN repository variable to enable it.
+      - name: Configure AWS credentials
+        if: env.CLASSIFIER == 'bedrock'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Run pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+        run: python -m gdpr_tagger --classifier "$CLASSIFIER" --out output
+
+      - name: Publish run summary
+        if: always()
+        run: |
+          echo "## GDPR tagging run" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat output/evidence/summary-*.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Evidence is kept as a build artifact. In production it would go to
+      # write-once storage (for example an S3 bucket with Object Lock).
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdpr-evidence-${{ github.run_id }}
+          path: output/
+          retention-days: 90

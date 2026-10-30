@@ -1,0 +1,63 @@
+# Data classification catalog for the (synthetic) retail data warehouse.
+# The rules engine maps every table.column a query touches to these tags.
+# Anything not listed here is "unknown" and goes to the AI classifier.
+
+allowed_tags:
+  PII_CONTACT: Direct contact details for a person (email, phone)
+  PII_IDENTITY: Information that identifies a person (name, date of birth)
+  PII_LOCATION: Physical address or precise location of a person
+  PSEUDONYMOUS_ID: Internal identifier that links to a person
+  FINANCIAL: Payment or financial account data
+  MERCHANT_RESTRICTED: Restricted merchant data (tax IDs, legal and banking details)
+  GEO_REGION: Country or region attributes used for jurisdiction scoping
+  GDPR_PERSONAL_DATA: Query touches personal data in GDPR scope
+  RESTRICTED_ACCESS_REVIEW: Requires data-owner approval before the query runs
+  NO_PERSONAL_DATA: No personal or restricted data detected
+
+# Tags added automatically when certain other tags are present.
+derived_tags:
+  GDPR_PERSONAL_DATA:
+    when_any: [PII_CONTACT, PII_IDENTITY, PII_LOCATION, PSEUDONYMOUS_ID]
+  RESTRICTED_ACCESS_REVIEW:
+    when_any: [MERCHANT_RESTRICTED, FINANCIAL]
+
+tables:
+  customers:
+    id: [PSEUDONYMOUS_ID]
+    email: [PII_CONTACT]
+    phone: [PII_CONTACT]
+    full_name: [PII_IDENTITY]
+    date_of_birth: [PII_IDENTITY]
+    shipping_address: [PII_LOCATION]
+    country_code: [GEO_REGION]
+    created_at: []
+
+  orders:
+    order_id: []
+    customer_id: [PSEUDONYMOUS_ID]
+    total: []
+    currency: []
+    shipping_region: [GEO_REGION]
+    created_at: []
+
+  payments:
+    payment_id: []
+    order_id: []
+    amount: []
+    card_last4: [FINANCIAL]
+    card_brand: []
+
+  merchants:
+    merchant_id: []
+    display_name: []
+    legal_name: [MERCHANT_RESTRICTED]
+    tax_id: [MERCHANT_RESTRICTED]
+    bank_account: [MERCHANT_RESTRICTED, FINANCIAL]
+    country_code: [GEO_REGION]
+
+  products:
+    product_id: []
+    merchant_id: []
+    title: []
+    category: []
+    price: []
