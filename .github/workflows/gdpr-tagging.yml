@@ -17,6 +17,11 @@ on:
         type: choice
         options: [mock, anthropic, bedrock]
         default: mock
+      servicenow:
+        description: "ServiceNow GRC push"
+        type: choice
+        options: ["off", dry-run, live]
+        default: dry-run
 
 permissions:
   contents: read
@@ -40,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CLASSIFIER: ${{ inputs.classifier || 'mock' }}
+      SERVICENOW: ${{ inputs.servicenow || 'dry-run' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -61,7 +67,11 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
-        run: python -m gdpr_tagger --classifier "$CLASSIFIER" --out output
+          SN_INSTANCE_URL: ${{ vars.SN_INSTANCE_URL }}
+          SN_CONTROL_SYS_ID: ${{ vars.SN_CONTROL_SYS_ID }}
+          SN_USER: ${{ secrets.SN_USER }}
+          SN_PASSWORD: ${{ secrets.SN_PASSWORD }}
+        run: python -m gdpr_tagger --classifier "$CLASSIFIER" --servicenow "$SERVICENOW" --out output
 
       - name: Publish run summary
         if: always()

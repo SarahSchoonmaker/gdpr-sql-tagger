@@ -2,6 +2,7 @@ sqlglot>=25
 pydantic>=2
 pyyaml>=6
 pytest>=8
+requests>=2.31
 # Optional backends (only needed for real Claude calls):
 anthropic>=0.40
 boto3>=1.34

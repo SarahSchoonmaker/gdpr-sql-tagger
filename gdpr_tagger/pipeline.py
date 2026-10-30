@@ -10,6 +10,7 @@ from .classifier import Classifier, get_classifier
 from .integrations import EvidenceLog, LocalTicketStore
 from .rules import Catalog, apply_rules, load_catalog
 from .sanitizer import SanitizationError, sanitize
+from .servicenow import ServiceNowConfig, ServiceNowGRC
 from .validator import validate
 
 AUTO_RULES = "auto_tagged_rules"
@@ -63,7 +64,8 @@ def process_ticket(ticket: dict, catalog: Catalog, classifier: Classifier, thres
             "note": v.rationale}
 
 
-def run(tickets_path: str, catalog_path: str, classifier_name: str, out_dir: str, threshold: float) -> dict:
+def run(tickets_path: str, catalog_path: str, classifier_name: str, out_dir: str, threshold: float,
+        servicenow: str = "off") -> dict:
     catalog = load_catalog(catalog_path)
     classifier = get_classifier(classifier_name)
     store = LocalTicketStore(tickets_path)
@@ -87,7 +89,28 @@ def run(tickets_path: str, catalog_path: str, classifier_name: str, out_dir: str
     print(f"\nProcessed {summary['population_processed']}/{summary['population_in_source']} tickets "
           f"(complete={summary['complete']}): {summary['decisions']}")
     print(f"Evidence: {evidence.dir}/{summary['records_file']}")
+
+    if servicenow != "off":
+        summary["servicenow"] = publish_to_servicenow(servicenow, evidence, summary, Path(out_dir))
     return summary
+
+
+def publish_to_servicenow(mode: str, evidence: EvidenceLog, summary: dict, out_dir: Path) -> dict:
+    try:
+        cfg = ServiceNowConfig.from_env()
+    except RuntimeError:
+        if mode == "live":
+            raise
+        # Dry run without an instance configured: show the calls against a placeholder.
+        cfg = ServiceNowConfig("https://your-instance.service-now.com", "<control_sys_id>")
+    grc = ServiceNowGRC(cfg, mode, dry_run_path=out_dir / "servicenow_requests.json")
+    result = grc.publish_run(evidence.dir, summary, evidence.records)
+    print(f"ServiceNow GRC ({mode}): attached {len(result['attachments'])} evidence files, "
+          f"created {len(result['issues_created'])} review issues, "
+          f"{len(result['issues_already_open'])} already open")
+    if mode == "dry-run":
+        print(f"Requests that would be sent: {out_dir / 'servicenow_requests.json'}")
+    return result
 
 
 def _print_row(rec: dict) -> None:
@@ -103,9 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--classifier", default="mock", choices=["mock", "anthropic", "bedrock"])
     p.add_argument("--out", default="output")
     p.add_argument("--threshold", type=float, default=0.8, help="minimum AI confidence to auto-tag")
+    p.add_argument("--servicenow", default="off", choices=["off", "dry-run", "live"],
+                   help="push evidence and review issues to ServiceNow GRC")
     args = p.parse_args(argv)
 
-    summary = run(args.tickets, args.catalog, args.classifier, args.out, args.threshold)
+    summary = run(args.tickets, args.catalog, args.classifier, args.out, args.threshold, args.servicenow)
     return 0 if summary["complete"] else 1
 
 

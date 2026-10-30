@@ -20,6 +20,7 @@ flowchart TD
     E -->|valid & confident| F[Tag ticket + log evidence]
     E -->|invalid or low confidence| H[Human review<br/>rule tags + AI suggestions]
     H --> F
+    F --> G[ServiceNow GRC<br/>evidence on control, issues for review]
 ```
 
 | Step | Module | What it does |
@@ -28,6 +29,7 @@ flowchart TD
 | Rules | `rules.py` | Looks up each `table.column` in `config/tag_catalog.yaml`. Expands `SELECT *`. Adds derived tags (e.g. any PII → `GDPR_PERSONAL_DATA`). |
 | Classify | `classifier.py` | Only for unresolved references. Sends the sanitized query to Claude with a forced structured (tool-use) response. Backends: offline mock, Anthropic API, Amazon Bedrock. |
 | Validate | `validator.py` | Rejects malformed output, drops any tag not in the allowed list, and routes low-confidence answers to a person. |
+| GRC push | `servicenow.py` | Attaches evidence to the control record and opens issues for review items in ServiceNow GRC. |
 | Tag + evidence | `integrations.py` | Writes tags and review status to the ticket and appends a timestamped evidence record. The raw SQL is never stored, only a SHA-256 hash for traceability. |
 
 ## Quick start
@@ -35,7 +37,7 @@ flowchart TD
 ```bash
 pip install -r requirements.txt
 python -m gdpr_tagger            # offline mock classifier, no API key needed
-pytest -q                        # 23 tests
+pytest -q                        # 27 tests
 ```
 
 Output on the sample tickets:
@@ -87,12 +89,32 @@ python -m gdpr_tagger --classifier bedrock
 
 Tune the auto-tag cut-off with `--threshold` (default `0.8`).
 
+## ServiceNow GRC
+
+Each run can push its results into ServiceNow GRC (Policy and Compliance):
+
+- The evidence file and run summary are **attached to the GRC control** the pipeline supports (`sn_compliance_control`), so the control carries continuous evidence for every run.
+- Every ticket that needs human review becomes a **GRC issue** (`sn_grc_issue`) with the reason, rule tags, AI suggestions, and the *sanitized* query. Re-runs check for an open issue first, so nothing is duplicated.
+
+```bash
+python -m gdpr_tagger --servicenow dry-run   # writes output/servicenow_requests.json, calls nothing
+
+export SN_INSTANCE_URL=https://yourcompany.service-now.com
+export SN_CONTROL_SYS_ID=<sys_id of the control record>
+export SN_USER=... SN_PASSWORD=...
+export SN_ISSUE_FIELDS='{"assignment_group": "<group sys_id>"}'   # optional extra fields
+python -m gdpr_tagger --servicenow live
+```
+
+Table names default to ServiceNow's standard GRC tables and can be overridden with `SN_CONTROL_TABLE` and `SN_ISSUE_TABLE`. Data models vary by instance and version, so confirm table and field names with your ServiceNow admin and use a least-privilege integration account.
+
 ## GitHub Actions
 
 `.github/workflows/gdpr-tagging.yml` runs the tests, then the pipeline, on a weekday schedule, on pull requests, and on demand. The tagging job only runs if tests pass. Each run publishes a summary and uploads the evidence folder as a build artifact.
 
 - Anthropic backend: add an `ANTHROPIC_API_KEY` repository secret.
 - Bedrock backend: set repository variables `AWS_ROLE_ARN` and `BEDROCK_MODEL_ID`. The workflow assumes the role through OIDC, so no long-lived AWS keys are stored.
+- ServiceNow: runs in `dry-run` by default. For `live`, set variables `SN_INSTANCE_URL` and `SN_CONTROL_SYS_ID` and secrets `SN_USER` and `SN_PASSWORD`.
 
 ## Design decisions
 
@@ -121,6 +143,7 @@ gdpr_tagger/
   classifier.py     mock / Anthropic / Bedrock backends
   validator.py      guardrails on model output
   integrations.py   ticket store and evidence log
+  servicenow.py     ServiceNow GRC evidence and issue push
   pipeline.py       orchestration and CLI
 config/tag_catalog.yaml
 data/tickets.json   synthetic tickets
@@ -130,6 +153,7 @@ tests/
 
 ## Extending it
 
-- Swap `LocalTicketStore` for a Jira or ServiceNow client with the same `load` / `apply` methods.
+- Swap `LocalTicketStore` for a Jira client with the same `load` / `apply` methods.
+- Post pass/fail results to GRC indicators for continuous control monitoring.
 - Send evidence to write-once storage (for example S3 with Object Lock).
 - Pass `dialect=` to the sanitizer for Redshift, Snowflake, BigQuery, etc.
